@@ -79,3 +79,4 @@ You can watch this demo along with an introduction to Kubernetes concepts [here]
    ```
    kubectl delete -f specs/postgres.yml
    ```
+# spring-boot-postgres-on-k8s-sample
