@@ -1,0 +1,17 @@
+@Library('shared-library@master') _
+
+def scmConfig = [
+	branch : "${params.BRANCH_NAME}",
+	github_cred_id : "github-cred",
+	url : "https://github.com/souadfawzy/jenkins-practice.git"
+	
+]
+def envConfig = [
+	JdkEnv : "JDK8",
+	mavenEnv : "MAVEN3.5",
+	mavenOpts : "-Xmx1g -XX:MaxPermSize=512m"	
+]
+
+pipeline-ci(
+	envConfig, scmConfig
+)

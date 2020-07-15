@@ -1,0 +1,189 @@
+pipeline {
+	tools {
+        jdk 'jdk1.7.0_15'
+    }
+    environment {
+         MAVEN_OPTS = "-Xmx3g -XX:MaxPermSize=8g"
+		EMAIL_REPLY = "noreply@emirates.com"
+		//EMAIL_RECPS = "phani.chandra@emirates.com,souad.fawzy@dnata.com"
+		//SONAR_PROJECT_KEY = "com.emirates:S.A.HRDIRECT"
+		//SONAR_PROJECT_NAME = "S.A.HRDIRECT"
+	 	//SONAR_INST = 'sonarqube.emirates.com'
+		MAVEN_VARS = '-PJF-4.1.0'
+		M2_Home= tool 'Maven 2.2.1'
+		MAVEN_Home= tool 'Maven 3.3.9'
+   		CURL_LOC = "F:\\Tools\\curl-7.64.1_1-win64-mingw\\curl-7.64.1-win64-mingw\\bin\\curl.exe"
+		NEXUS_USERNAME = "S411334"
+        NEXUS_PWD = "Zurich1808"
+		artifact_path = "hrd-deployables/hrw-hrdirect-web/target"
+		file_name_web = "hrdirect.war"
+		FUNCTION_TEST_CHECKOUT="S.A.HRDIRECT"
+       
+		
+		
+	} //environment
+   parameters {
+        string(name: 'GIT_URL', defaultValue: 'ssh://git@git.emirates.com', description: '<b><font size="2" color="#4C95E8">Emirates GIT URL</font></b>')
+		string(name: 'GIT_REPO', defaultValue: 'genhr/s.a.hrdirect', description: '<b><font size="2" color="#4C95E8">HRDirect Emirates GIT Repo</font></b>')
+        string(name: 'GIT_BRANCH', defaultValue: 'HRDirect_SonarCubeFixes', description: '<b><font size="2" color="#4C95E8">HRDirect GIT Branch Name</font></b>')
+        string(name: 'GIT_PROJECT', defaultValue: 'S.A.HRDIRECT', description: '<b><font size="2" color="#4C95E8">GIT Project Name</font></b>')
+		string(name: 'TEST_GIT_BRANCH', defaultValue: 'develop', description: '<b><font size="2" color="#4C95E8">HRDirect GIT Branch Name</font></b>')
+		string(name: 'TEST_GIT_REPO', defaultValue: 'genhr/hrdirectfunctionalautomation', description: '<b><font size="2" color="#4C95E8">HRDirect GIT Branch Name</font></b>')
+        string(name: 'SONAR_INST', defaultValue: 'sonarqube.emirates.com', description: '<b><font size="2" color="#4C95E8">SONARQUBE Url</font></b>')
+	    string(name: 'NEXUS_REPO', defaultValue: 'http://repository.emirates.com/repository/cicd/', description: '<b><font size="2" color="#4C95E8">Nexus Repo.</font></b>')    
+	    choice(name: 'Deploy To', choices: 'DEV\nSIT\nPROD', description: '<b><font size="2" color="#4C95E8">Select the Deployment Environment</font></b>')
+        string(name: 'GIT_USERNAME', defaultValue: 'S753991', description: '<b><font size="2" color="#4C95E8">GIT Username</font></b>')
+        password(name: 'GIT_PASSWORD', defaultValue: 'SECRET', description: '<b><font size="2" color="#F27977">GIT password</font></b>')
+        text(name: 'EMAIL_RECPS', defaultValue: 'souad.fawzy@dnata.com', description: '<b><font size="2" color="#E8914C">Add email id to whom report should be sent</font></b>')
+    }
+
+  
+  agent any
+  
+			
+    stages {
+        stage('SCM Checkout') {
+            steps {
+                    cleanWs()
+					git branch: '${GIT_BRANCH}', poll: false, url: '${GIT_URL}/${GIT_REPO}.git'
+                  }
+        }
+        stage('Build and Sonar') {
+            steps {
+                script {
+				
+				     withSonarQubeEnv("${SONAR_INST}") {
+                        if (isUnix()) {
+                            ansiColor('xterm') {
+                                sh "'${M2_Home}/bin/mvn' clean ${MAVEN_VARS}"
+                                sh "'${M2_Home}/bin/mvn' -U -Dmaven.test.skip=true install org.codehaus.sonar:sonar-maven-plugin:4.2:sonar  ${MAVEN_VARS}"
+                            }
+                        } else {
+							
+                            bat(/"${M2_Home}\bin\mvn" -v clean -sF:\Tools\settings.xml/)
+                            bat(/"${M2_Home}\bin\mvn" -Dmaven.test.skip=true clean -sF:\Tools\settings.xml/)
+                            bat(/"${M2_Home}\bin\mvn" -Dmaven.test.skip=true -Dsonar.skipPackageDesign=true -Dsonar.skipDesign=true  install org.codehaus.sonar:sonar-maven-plugin:4.2:sonar -Dsonar.host.url=${SONAR_HOST_URL} -Dmaven.test.failure.ignore=true -sF:\Tools\settings.xml/)
+                        }
+                    }
+                
+                }
+            }
+        }
+		
+	
+        /*stage('Functional Tests Run') {
+            steps {
+			build job: 'HRDirect_Automation', parameters: [string(name: 'GIT_URL', value: 'ssh://git@git.emirates.com'), string(name: 'GIT_REPO', value: 'genhr/hrdirectfunctionalautomation'), string(name: 'GIT_BRANCH', value: 'develop')]
+              
+            }
+        }*/
+
+	 stage('Nexus Artifact Upload') {
+            steps {
+                script {
+                    withCredentials([usernamePassword(credentialsId:'S411334', usernameVariable: 'NEXUS_USERNAME', passwordVariable: 'NEXUS_PWD')]) {
+                   
+                       bat "${CURL_LOC} --upload-file ${artifact_path}\\${file_name_web} -u ${NEXUS_USERNAME}:${NEXUS_PWD} -v ${NEXUS_REPO}"
+                      
+                    }
+                } //script
+            } //steps
+        } //stage
+	
+	 stage('Stop Server') {
+			steps {
+			script {
+              sshPublisher(publishers: [sshPublisherDesc(configName: 'hqlnxap032dv_hrd', transfers: [sshTransfer(cleanRemote: false, excludes: '', execCommand: '''sudo su - jbossadmin << \'EOF\'
+              sh /apps/jboss/jboss-eap-6.2.0/jboss-eap-6.2/bin/hrdirect_node3_Server.sh stop''', execTimeout: 120000, flatten: false, makeEmptyDirs: false, noDefaultExcludes: false, patternSeparator: '[, ]+', remoteDirectory: '', remoteDirectorySDF: false, removePrefix: '', sourceFiles: '')], usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: false)])
+					}
+				}
+		} 
+     stage('Backup of existing war') {
+		steps {
+		  script {
+				sshPublisher(publishers: [sshPublisherDesc(configName: 'hqlnxap032dv_hrd', transfers: [sshTransfer(cleanRemote: false, excludes: '', execCommand: '''sudo su - jbossadmin << \'EOF\'
+				echo "Creating backup Folder"
+				mkdir /apps/jboss/jboss-eap-6.2.0/jboss-eap-6.2/hrdirect_node3/bkup_war_`date +%Y%m%d`
+				echo "Backup hrdirect.war"
+				cp /apps/jboss/jboss-eap-6.2.0/jboss-eap-6.2/hrdirect_node3/deployments/hrdirect.war /apps/jboss/jboss-eap-6.2.0/jboss-eap-6.2/hrdirect_node3/bkup_war_`date +%Y%m%d`/hrdirect.war_`date +%Y%m%d%H%M`.''', execTimeout: 120000, flatten: false, makeEmptyDirs: false, noDefaultExcludes: false, patternSeparator: '[, ]+', remoteDirectory: '/tmp', remoteDirectorySDF: false, removePrefix: '', sourceFiles: '')], usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: false)])
+				
+		  }
+		}
+	  }
+	  
+	 stage('Deploy from Nexus') {
+      steps {
+	     script {
+          sshPublisher(publishers: [sshPublisherDesc(configName: 'hqlnxap032dv_hrd', transfers: [sshTransfer(cleanRemote: false, excludes: '', execCommand: '''sudo su - jbossadmin << \'EOF\'
+          cd /apps/jboss/jboss-eap-6.2.0/jboss-eap-6.2/hrdirect_node3/deployments/
+          echo "Removing OLD war files "
+          rm -rf hrdirect.war
+          echo "Downloading artifacts to deploy !!!"
+          wget http://repository.emirates.com/repository/cicd/hrdirect.war
+          
+          chmod 755 hrdirect.war
+         
+          ls -lrt''', execTimeout: 120000, flatten: false, makeEmptyDirs: false, noDefaultExcludes: false, patternSeparator: '[, ]+', remoteDirectory: '/tmp', remoteDirectorySDF: false, removePrefix: '', sourceFiles: '')], usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: false)])
+        }
+	  
+      }
+  }
+
+  stage('Start Server') {
+      steps {
+        script {
+             sshPublisher(publishers: [sshPublisherDesc(configName: 'hqlnxap032dv_hrd', transfers: [sshTransfer(cleanRemote: false, excludes: '', execCommand: '''sudo su - jbossadmin << \'EOF\'
+              sh /apps/jboss/jboss-eap-6.2.0/jboss-eap-6.2/bin/hrdirect_node3_Server.sh start''', execTimeout: 120000, flatten: false, makeEmptyDirs: false, noDefaultExcludes: false, patternSeparator: '[, ]+', remoteDirectory: '', remoteDirectorySDF: false, removePrefix: '', sourceFiles: '')], usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: false)])
+        }
+      }
+	}
+	}
+    post {
+        always {
+            junit allowEmptyResults: true, testResults: '**/target/surefire-reports/*.xml'
+           
+        }
+        failure {
+            script {
+                if (!"${EMAIL_RECPS}".isEmpty()) {
+                    emailext(
+                            attachLog: false,
+                            body: '${DEFAULT_CONTENT}',
+                            mimeType: 'text/html',
+                            replyTo: "${EMAIL_REPLY}",
+                            subject: '${DEFAULT_SUBJECT}',
+                            to: "${EMAIL_RECPS}"
+                    )
+                }
+            }
+        }
+        unstable {
+            script {
+                if (!"${EMAIL_RECPS}".isEmpty()) {
+                    emailext(
+                            attachLog: false,
+                            body: '${DEFAULT_CONTENT}',
+                            mimeType: 'text/html',
+                            replyTo: "${EMAIL_REPLY}",
+                            subject: '${DEFAULT_SUBJECT}',
+                            to: "${EMAIL_RECPS}"
+                    )
+                }
+            }
+        }
+        changed {
+            script {
+                if (!"${EMAIL_RECPS}".isEmpty()) {
+                    emailext(
+                            attachLog: false,
+                            body: '${DEFAULT_CONTENT}',
+                            mimeType: 'text/html',
+                            replyTo: "${EMAIL_REPLY}",
+                            subject: '${DEFAULT_SUBJECT}',
+                            to: "${EMAIL_RECPS}"
+                    )
+                }
+            }
+        }
+    }
+ }
