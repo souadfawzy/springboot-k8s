@@ -2,7 +2,7 @@
 
 def scmConfig = [
 	branch : "${params.BRANCH_NAME}",
-	github_cred_id : "github-cred",
+	github_cred_id : "souad-git",
 	url : "https://github.com/souadfawzy/jenkins-practice.git"
 	
 ]
